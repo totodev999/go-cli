@@ -9,9 +9,81 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gorm.io/gorm"
+
 	"main.go/database"
 	"main.go/models"
+	"main.go/utils"
 )
+
+type TodoHandler struct {
+	db     *gorm.DB
+	logger utils.Logger
+}
+
+func NewTodoHandler(db *gorm.DB, logger utils.Logger) *TodoHandler {
+	return &TodoHandler{
+		db:     db,
+		logger: logger,
+	}
+}
+
+func (h *TodoHandler) CreateTodo(title, description, dueDate string) error {
+	dueDateParsed, err := dateConverter(dueDate)
+	if err != nil {
+		return fmt.Errorf("error parsing due date: %w", err)
+	}
+
+	todo := models.Todo{
+		Title:       title,
+		Description: description,
+		DueDate:     dueDateParsed.Format("2006/01/02"),
+	}
+	return h.db.Create(&todo).Error
+}
+
+func (h *TodoHandler) GetTodos(id int) ([]models.Todo, error) {
+	if id > 0 {
+		var todo models.Todo
+		if err := h.db.First(&todo, id).Error; err != nil {
+			return nil, err
+		}
+		return []models.Todo{todo}, nil
+	}
+
+	var todos []models.Todo
+	if err := h.db.Find(&todos).Error; err != nil {
+		return nil, err
+	}
+	return todos, nil
+}
+
+func (h *TodoHandler) UpdateTodo(id int, title, description, dueDate string) error {
+	var todo models.Todo
+	if err := h.db.First(&todo, id).Error; err != nil {
+		return err
+	}
+
+	if title != "" {
+		todo.Title = title
+	}
+	if description != "" {
+		todo.Description = description
+	}
+	if dueDate != "" {
+		dueDateParsed, err := dateConverter(dueDate)
+		if err != nil {
+			return err
+		}
+		todo.DueDate = dueDateParsed.Format("2006/01/02")
+	}
+
+	return h.db.Save(&todo).Error
+}
+
+func (h *TodoHandler) DeleteTodo(id int) error {
+	return h.db.Delete(&models.Todo{}, id).Error
+}
 
 func dateConverter(date string) (time.Time, error) {
 	formattedDueData := strings.ReplaceAll(date, "/", "-")
@@ -30,108 +102,74 @@ func dateConverter(date string) (time.Time, error) {
 
 }
 
-// todoCmd represents the todo command
 var todoCmd = &cobra.Command{
 	Use:   "todo",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Todo management command",
 	Run: func(cmd *cobra.Command, args []string) {
-		operation, _ := cmd.Flags().GetString("operation")
-		title, err1 := cmd.Flags().GetString("title")
-		description, err2 := cmd.Flags().GetString("description")
-		dueDate, err3 := cmd.Flags().GetString("due_date")
-		id, _ := cmd.Flags().GetInt("id")
-
-		fmt.Println(id)
-
-		if err1 != nil || err2 != nil || err3 != nil {
-			fmt.Println("Error getting flags")
-			return
-		}
-
 		database.Connect()
 		models.Migrate(database.DB)
+
+		handler := NewTodoHandler(database.DB, &utils.DefaultLogger{})
+
+		operation, _ := cmd.Flags().GetString("operation")
+		title, _ := cmd.Flags().GetString("title")
+		description, _ := cmd.Flags().GetString("description")
+		dueDate, _ := cmd.Flags().GetString("due_date")
+		id, _ := cmd.Flags().GetInt("id")
 
 		switch operation {
 		case "post":
 			if title == "" || dueDate == "" || description == "" {
-				fmt.Println("Please provide title, description, due date")
+				handler.logger.Println("Please provide title, description, due date")
 				return
 			}
-
-			dueDateParsed, err := dateConverter(dueDate)
-			if err != nil {
-				fmt.Println("Error parsing due date")
+			if err := handler.CreateTodo(title, description, dueDate); err != nil {
+				handler.logger.Println("Error creating todo:", err)
 				return
 			}
-			parsedDueDate := dueDateParsed.Format("2006/01/02")
-
-			if err != nil {
-				fmt.Println("Error parsing due date")
-				return
-			}
-
-			todo := models.Todo{Title: title, Description: description, DueDate: parsedDueDate}
-			database.DB.Create(&todo)
-			fmt.Println("Todo created successfully!")
+			handler.logger.Println("Todo created successfully!")
 
 		case "get":
-			var todos []models.Todo
-			if id > 0 {
-				var todo models.Todo
-				database.DB.First(&todo, id)
-				fmt.Printf("ID: %d\nTitle: %s\nDescription: %s\nDue Date: %s\n", todo.ID, todo.Title, todo.Description, todo.DueDate)
-			} else {
-				database.DB.Find(&todos)
-				for _, todo := range todos {
-					fmt.Printf("ID: %d\nTitle: %s\nDescription: %s\nDue Date: %s\n\n", todo.ID, todo.Title, todo.Description, todo.DueDate)
-				}
+			todos, err := handler.GetTodos(id)
+			if err != nil {
+				handler.logger.Println("Error getting todos:", err)
+				return
+			}
+			for _, todo := range todos {
+				handler.logger.Println("ID:", todo.ID)
+				handler.logger.Println("Title:", todo.Title)
+				handler.logger.Println("Description:", todo.Description)
+				handler.logger.Println("Due Date:", todo.DueDate)
+				handler.logger.Println()
 			}
 
 		case "put":
 			if id == 0 {
-				fmt.Println("Please provide todo ID")
+				handler.logger.Println("Please provide todo ID")
 				return
 			}
-			var todo models.Todo
-			database.DB.First(&todo, id)
-
-			if title != "" {
-				todo.Title = title
+			if err := handler.UpdateTodo(id, title, description, dueDate); err != nil {
+				handler.logger.Println("Error updating todo:", err)
+				return
 			}
-			if description != "" {
-				todo.Description = description
-			}
-			if dueDate != "" {
-				dueDateParsed, err := dateConverter(dueDate)
-				if err != nil {
-					fmt.Println("Error parsing due date")
-					return
-				}
-				todo.DueDate = dueDateParsed.Format("2006/01/02")
-			}
-
-			database.DB.Save(&todo)
-			fmt.Println("Todo updated successfully!")
+			handler.logger.Println("Todo updated successfully!")
 
 		case "delete":
 			if id == 0 {
-				fmt.Println("Please provide todo ID")
+				handler.logger.Println("Please provide todo ID")
 				return
 			}
-			var todo models.Todo
-			database.DB.Delete(&todo, id)
-			fmt.Println("Todo deleted successfully!")
+			if err := handler.DeleteTodo(id); err != nil {
+				handler.logger.Println("Error deleting todo:", err)
+				return
+			}
+			handler.logger.Println("Todo deleted successfully!")
 
 		default:
-			fmt.Println("Invalid operation. Use post, get, put, or delete")
+			handler.logger.Println("Invalid operation. Use post, get, put, or delete")
 		}
-	}}
+	},
+}
 
 func init() {
 	rootCmd.AddCommand(todoCmd)
