@@ -16,8 +16,8 @@ import (
 // getDataCmd represents the getData command
 var getDataCmd = &cobra.Command{
 	Use:   "getData",
-	Short: "get data from url which you enter and you can also set id",
-	Long:  `get data from url which you enter and you can also set id`,
+	Short: "get data from url which you enter and you can also set id to get specific data",
+	Long:  `get data from url which you enter and you can also set id to get specific data`,
 	Run: func(cmd *cobra.Command, args []string) {
 		urlString, _ := cmd.Flags().GetString("url")
 		key, _ := cmd.Flags().GetString("key")
@@ -82,5 +82,5 @@ func init() {
 	rootCmd.AddCommand(getDataCmd)
 
 	getDataCmd.Flags().StringP("url", "U", "", "URL to get data from")
-	getDataCmd.Flags().StringP("key", "", "", "key you want to get data for")
+	getDataCmd.Flags().StringP("key", "K", "", "key you want to get data for")
 }
